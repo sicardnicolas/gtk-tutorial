@@ -19,14 +19,28 @@
  */
 
 public class TextViewer.Application : Adw.Application {
+    private Settings settings = new Settings ("com.example.TextViewer");
+
     public Application () {
         Object (
             application_id: "com.example.TextViewer",
-            flags: ApplicationFlags.DEFAULT_FLAGS
+            flags: ApplicationFlags.FLAGS_NONE
         );
     }
 
     construct {
+        bool dark_mode = this.settings.get_boolean ("dark-mode");
+        var style_manager = Adw.StyleManager.get_default ();
+        if (dark_mode)
+            style_manager.color_scheme = Adw.ColorScheme.FORCE_DARK;
+        else
+            style_manager.color_scheme = Adw.ColorScheme.DEFAULT;
+
+        var dark_mode_action = new SimpleAction.stateful ("dark-mode", null, new Variant.boolean (dark_mode));
+
+        dark_mode_action.activate.connect (this.toggle_dark_mode);
+        dark_mode_action.change_state.connect (this.change_color_scheme);
+
         ActionEntry[] action_entries = {
             { "about", this.on_about_action },
             { "preferences", this.on_preferences_action },
@@ -36,6 +50,28 @@ public class TextViewer.Application : Adw.Application {
         this.set_accels_for_action ("app.quit", {"<primary>q"});
 
         this.set_accels_for_action("win.open", {"<Ctrl>o"});
+
+        this.set_accels_for_action("win.save-as", { "<Ctrl><Shift>s" });
+    }
+
+    private void toggle_dark_mode (Action action, Variant? parameter) {
+        Variant state = action.state;
+        bool old_state = state.get_boolean ();
+        bool new_state = !old_state;
+        action.change_state (new_state);
+    }
+
+    private void change_color_scheme (SimpleAction action, Variant? new_state) {
+        bool dark_mode = new_state.get_boolean ();
+        var style_manager = Adw.StyleManager.get_default ();
+
+        if (dark_mode)
+            style_manager.color_scheme = Adw.ColorScheme.FORCE_DARK;
+        else
+            style_manager.color_scheme = Adw.ColorScheme.DEFAULT;
+        action.set_state (new_state);
+
+        this.settings.set_boolean ("dark-mode", dark_mode);
     }
 
     public override void activate () {

@@ -29,6 +29,11 @@ public class TextViewer.Window : Adw.ApplicationWindow {
     [GtkChild]
     private unowned Gtk.Label cursor_pos;
 
+    [GtkChild]
+    private unowned Adw.ToastOverlay toast_overlay;
+
+    private Settings settings = new Settings("com.example.TextViewer");
+
     public Window (Gtk.Application app) {
         Object (application: app);
     }
@@ -38,8 +43,16 @@ public class TextViewer.Window : Adw.ApplicationWindow {
         open_action.activate.connect(this.open_file_dialog);
         this.add_action(open_action);
 
+        var save_action = new SimpleAction("save-as", null);
+        save_action.activate.connect(this.save_file_dialog);
+        this.add_action(save_action);
+
         Gtk.TextBuffer buffer = this.main_text_view.buffer;
         buffer.notify["cursor-position"].connect(this.update_cursor_position);
+
+        this.settings.bind ("window-width", this, "default-width", SettingsBindFlags.DEFAULT);
+        this.settings.bind ("window-height", this, "default-height", SettingsBindFlags.DEFAULT);
+        this.settings.bind ("window-maximized", this, "maximized", SettingsBindFlags.DEFAULT);
     }
 
     private void open_file_dialog(Variant? parameter) {
@@ -71,13 +84,15 @@ public class TextViewer.Window : Adw.ApplicationWindow {
             try {
                 file.load_contents_async.end(result, out contents, null);
             } catch (Error e) {
-                stderr.printf("Unable to open “%s“: %s", file.peek_path(), e.message);
+                //stderr.printf("Unable to open “%s“: %s", file.peek_path(), e.message);
+                this.toast_overlay.add_toast(new Adw.Toast(@"Unable to open “$display_name“"));
             }
 
             if (!((string) contents).validate()) {
-                stderr.printf("Unable to load the contents of “%s”: "+
-                           "the file is not encoded with UTF-8\n",
-                           file.peek_path ());
+                // stderr.printf("Unable to load the contents of “%s”: "+
+                //            "the file is not encoded with UTF-8\n",
+                //            file.peek_path ());
+                this.toast_overlay.add_toast (new Adw.Toast (@"Invalid text encoding for “$display_name“"));
             }
 
             // Retrieve the GtkTextBuffer instance that stores the
@@ -93,6 +108,8 @@ public class TextViewer.Window : Adw.ApplicationWindow {
             buffer.place_cursor (start);
 
             this.title = display_name;
+
+            this.toast_overlay.add_toast (new Adw.Toast (@"Opened “$display_name“"));
         });
     }
 
@@ -104,5 +121,61 @@ public class TextViewer.Window : Adw.ApplicationWindow {
         buffer.get_iter_at_offset (out iter, cursor_position);
 
         this.cursor_pos.label = @"Ln $(iter.get_line ()), Col $(iter.get_line_offset ())";
+    }
+
+    private void save_file_dialog(Variant? parameter) {
+        var filechooser = new Gtk.FileChooserNative(
+            "Save file as",
+            this,
+            Gtk.FileChooserAction.SAVE,
+            "_Save",
+            "_Cancel"
+        );
+        filechooser.response.connect((dialog, response) => {
+            if (response == Gtk.ResponseType.ACCEPT) {
+                File file = filechooser.get_file();
+                this.save_file(file);
+            }
+        });
+        filechooser.show();
+    }
+
+    private void save_file(File file) {
+        Gtk.TextBuffer buffer = this.main_text_view.buffer;
+
+        Gtk.TextIter start;
+        buffer.get_start_iter(out start);
+
+        Gtk.TextIter end;
+        buffer.get_end_iter(out end);
+
+        string? text = buffer.get_text(start, end, false);
+
+        if (text == null || text.length == 0)
+            return;
+
+        var bytes = new Bytes.take(text.data);
+
+        file.replace_contents_bytes_async.begin(bytes, null, false, FileCreateFlags.NONE, null, (object, result) => {
+            string display_name;
+            try {
+                FileInfo info = file.query_info("standard::display-name", FileQueryInfoFlags.NONE);
+                display_name = info.get_attribute_string("standard::display-name");
+            } catch (Error e) {
+                display_name = file.get_basename();
+            }
+
+            string message;
+
+            try {
+                file.replace_contents_async.end(result, null);
+                message = @"Saved as “$display_name“";
+            } catch (Error e) {
+                //stderr.printf("Unable to save “%s”: %s\n", display_name, e.message);
+                message = @"Unable to save as “$display_name“";
+            }
+
+            this.toast_overlay.add_toast (new Adw.Toast (message));
+        });
     }
 }
